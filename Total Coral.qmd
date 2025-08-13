@@ -100,3 +100,63 @@ print(head(final_table, 20))
 
 ```
 
+
+```{r}
+library(dplyr)
+
+final_table_dedup <- final_table %>%
+  group_by(Year, Block, Treatment, `Coral ID`) %>%
+  slice_max(order_by = Size, n = 1, with_ties = FALSE) %>%  # keep the best one
+  ungroup()
+```
+
+
+
+```{r}
+dups <- final_table_dedup %>%
+  count(Year, Block, Treatment, `Coral ID`) %>%
+  filter(n > 1)
+nrow(dups)
+
+```
+
+
+
+```{r}
+# install.packages("writex1")  # run once
+library(writexl)
+
+out_path <- "C:/Users/brody/Desktop/Brody Thesis Project/final_table_dedup.xlsx"
+write_xlsx(final_table_dedup, path = out_path)
+
+```
+
+
+
+```{r}
+library(tidyverse)
+
+totals_overall <- final_table %>%
+  group_by(Year, Treatment) %>%
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
+
+# View/save if needed
+# write_csv(totals_overall, "totals_overall.csv")
+
+ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
+       x = "Year", y = "Total Coral Size") +
+  scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
+  theme_minimal()
+
+```
+
+
+```{r}
+Coral_Table <- read.csv("C:/Users/brody/Desktop/Brody Thesis Project/Coral Table.csv")
+```
+
+
+

@@ -1,0 +1,161 @@
+---
+title: "Coral"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(readr)
+library(stringr)
+library(janitor)
+
+# --- where all your *_Matches_*.csv live (recursively) ---
+data_dir <- "C:/Users/brody/Desktop/Brody Thesis Project/Matches Data (NO GEN)"
+
+# unit conversion (CSV areas are cm²; change if needed)
+units_in <- "cm2"
+to_cm2 <- function(x, units = c("cm2","mm2","m2")) {
+  units <- match.arg(units)
+  x <- suppressWarnings(as.numeric(x))
+  if (units == "cm2") x else if (units == "mm2") x/100 else x*10000
+}
+
+# find all match CSVs
+files <- list.files(data_dir, pattern = "_Matches_.*\\.csv$", full.names = TRUE, recursive = TRUE)
+stopifnot(length(files) > 0)
+
+# parse helpers
+parse_block_treatment <- function(fname) {
+  m <- str_match(fname, "^([A-Za-z]\\d+)_([^_]+)_Matches_")
+  if (is.na(m[1,1])) stop("Unexpected filename format (Block/Treatment): ", fname)
+  list(block = m[1,2], treatment = m[1,3])
+}
+parse_years <- function(fname) {
+  yrs <- str_extract_all(fname, "(?<!\\d)(20\\d{2})(?!\\d)")[[1]]
+  if (length(yrs) < 2) stop("Could not find two years in filename: ", fname)
+  as.integer(tail(yrs, 2))
+}
+
+read_match_file <- function(fp) {
+  fname <- basename(fp)
+  bt <- parse_block_treatment(fname)
+  yrs <- parse_years(fname); y1 <- yrs[1]; y2 <- yrs[2]
+  # whether that year is marked _coreg in the filename
+  coreg1 <- str_detect(fname, paste0(y1, "_coreg"))
+  coreg2 <- str_detect(fname, paste0(y2, "_coreg"))
+
+  df <- read_csv(fp, show_col_types = FALSE) |> clean_names()
+
+  # expect these; Blob columns may be missing in some exports, so handle gracefully
+  need <- c("genet","area1","area2","class")
+  miss <- setdiff(need, names(df))
+  if (length(miss)) stop("Missing columns in ", fname, ": ", paste(miss, collapse=", "))
+
+  has_blob1 <- "blob1" %in% names(df)
+  has_blob2 <- "blob2" %in% names(df)
+
+  earlier <- df |>
+    transmute(
+      Year = y1,
+      Block = bt$block,
+      Treatment = bt$treatment,
+      `Coral ID` = genet,
+      `Coral Species` = str_trim(as.character(class)),
+      Size = to_cm2(area1, units_in),
+      Fragment = if (has_blob1) as.integer(df$blob1) else NA_integer_,
+      source_side = "earlier",
+      coreg_for_year = coreg1
+    )
+
+  later <- df |>
+    transmute(
+      Year = y2,
+      Block = bt$block,
+      Treatment = bt$treatment,
+      `Coral ID` = genet,
+      `Coral Species` = str_trim(as.character(class)),
+      Size = to_cm2(area2, units_in),
+      Fragment = if (has_blob2) as.integer(df$blob2) else NA_integer_,
+      source_side = "later",
+      coreg_for_year = coreg2
+    )
+
+  # Clean sentinel -1 fragments (means no fragment) -> NA
+  bind_rows(earlier, later) |>
+    mutate(Fragment = ifelse(!is.na(Fragment) & Fragment < 0, NA_integer_, Fragment),
+           pref_rank = if_else(coreg_for_year, 2L, 0L) + if_else(source_side == "later", 1L, 0L))
+}
+
+# 1) read everything with fragment info + preference
+long_all <- files |> map_dfr(read_match_file) |>
+  mutate(
+    `Coral Species` = na_if(`Coral Species`, ""),
+    Size = replace_na(Size, 0)
+  )
+
+# 2) de-dup **within fragment** (keep both fragments if a genet split)
+#    key = Year, Block, Treatment, Coral ID, Fragment
+#    preference: _coreg wins; if tie, "later" wins; if tie, larger Size wins
+fragment_best <- long_all |>
+  arrange(Year, Block, Treatment, `Coral ID`, Fragment,
+          desc(pref_rank), desc(Size)) |>
+  distinct(Year, Block, Treatment, `Coral ID`, Fragment, .keep_all = TRUE)
+
+# 3) finalize your fragment-level table
+final_table_fragments <- fragment_best |>
+  group_by(Block, Treatment, `Coral ID`) |>
+  mutate(`Year Discovered` = ifelse(any(Size > 0), min(Year[Size > 0]), NA_integer_)) |>
+  ungroup() |>
+  mutate(`Coral Present (Yes or No)` = if_else(Size > 0, "Yes", "No")) |>
+  select(
+    Year, Block, Treatment, `Coral ID`, Fragment, `Coral Species`,
+    `Coral Present (Yes or No)`, `Year Discovered`, Size
+  ) |>
+  arrange(Block, Treatment, `Coral ID`, Fragment, Year)
+
+# (Optional) 4) genet-level view (sum fragments per genet-year)
+final_table_genet <- final_table_fragments |>
+  group_by(Year, Block, Treatment, `Coral ID`) |>
+  summarise(
+    Size = sum(Size, na.rm = TRUE),
+    `Coral Species` = first(na.omit(`Coral Species`)),
+    `Year Discovered` = min(`Year Discovered`, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(`Coral Present (Yes or No)` = if_else(Size > 0, "Yes", "No")) |>
+  arrange(Block, Treatment, `Coral ID`, Year)
+
+# --- sanity checks ---
+# duplicates remaining at fragment level?
+fragment_dups <- final_table_fragments |>
+  count(Year, Block, Treatment, `Coral ID`, Fragment) |>
+  filter(n > 1)
+nrow(fragment_dups)
+
+# duplicates remaining at genet level?
+genet_dups <- final_table_genet |>
+  count(Year, Block, Treatment, `Coral ID`) |>
+  filter(n > 1)
+nrow(genet_dups)
+
+```
+
+
+```{r}
+dups <- final_table_fragments %>%
+  count(Year, Block, Treatment, `Coral ID`) %>%
+  filter(n > 1)
+nrow(dups)
+
+```
+
+
+```{r}
+# install.packages("writex1")  # run once
+library(writexl)
+
+out_path <- "C:/Users/brody/Desktop/Brody Thesis Project/final_table_fragments.xlsx"
+write_xlsx(final_table_fragments, path = out_path)
+
+```
+
