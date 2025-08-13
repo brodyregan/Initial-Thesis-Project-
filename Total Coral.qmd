@@ -1,5 +1,102 @@
----
-title: "Total Coral"
-format: html
----
+
+
+
+
+```{r}
+library(tidyverse)
+library(readr)
+library(stringr)
+
+# --- Base folder that holds all the subfolders you listed ---
+data_dir <- "C:/Users/brody/Desktop/Brody Thesis Project/Matches Data (NO GEN)"
+
+# 1) Find ALL match CSVs recursively (no need to hand-type them)
+files <- list.files(
+  data_dir,
+  pattern = "_Matches_.*\\.csv$",
+  full.names = TRUE,
+  recursive = TRUE
+)
+
+stopifnot(length(files) > 0)
+
+# 2) Helpers to parse Block/Treatment and Years from filename
+#    (Works for 1x1, 2x2, Con, TopOnly, etc.; years pulled from the last two 4-digit tokens)
+parse_block_treatment <- function(fname) {
+  m <- str_match(fname, "^([A-Za-z]\\d+)_([^_]+)_Matches_")
+  if (is.na(m[1,1])) stop("Unexpected filename format (Block/Treatment): ", fname)
+  list(block = m[1,2], treatment = m[1,3])
+}
+
+parse_years <- function(fname) {
+  yrs <- str_extract_all(fname, "(?<!\\d)(20\\d{2})(?!\\d)")[[1]]
+  if (length(yrs) < 2) stop("Could not find two years in filename: ", fname)
+  as.integer(tail(yrs, 2))
+}
+
+# 3) Your same reader, generalized
+read_match_file <- function(fp) {
+  fname <- basename(fp)
+  bt <- parse_block_treatment(fname)
+  yrs <- parse_years(fname)
+  year_1 <- yrs[1]
+  year_2 <- yrs[2]
+
+  df <- read_csv(fp, show_col_types = FALSE)
+
+  # Expect columns like your working example
+  need <- c("Genet","Area1","Area2","Class")
+  miss <- setdiff(need, names(df))
+  if (length(miss)) stop("Missing columns in ", fname, ": ", paste(miss, collapse=", "))
+
+  earlier <- df %>%
+    transmute(
+      Year = year_1,
+      Block = bt$block,
+      Treatment = bt$treatment,
+      `Coral ID` = Genet,
+      `Coral Species` = trimws(as.character(Class)),
+      Size = suppressWarnings(as.numeric(Area1))
+    )
+
+  later <- df %>%
+    transmute(
+      Year = year_2,
+      Block = bt$block,
+      Treatment = bt$treatment,
+      `Coral ID` = Genet,
+      `Coral Species` = trimws(as.character(Class)),
+      Size = suppressWarnings(as.numeric(Area2))
+    )
+
+  bind_rows(earlier, later)
+}
+
+# 4) Read and combine everything (same downstream logic as your snippet)
+long_all <- files %>%
+  map(read_match_file) %>%
+  list_rbind() %>%
+  mutate(
+    `Coral Species` = na_if(`Coral Species`, ""),
+    Size = replace_na(Size, 0)
+  )
+
+final_table <- long_all %>%
+  group_by(Block, Treatment, `Coral ID`) %>%
+  mutate(`Year Discovered` = ifelse(any(Size > 0), min(Year[Size > 0]), NA_integer_)) %>%
+  ungroup() %>%
+  mutate(`Coral Present (Yes or No)` = if_else(Size > 0, "Yes", "No")) %>%
+  select(
+    Year, Block, Treatment,
+    `Coral ID`, `Coral Species`,
+    `Coral Present (Yes or No)`,
+    `Year Discovered`, Size
+  ) %>%
+  arrange(Block, Treatment, `Coral ID`, Year)
+
+# Preview / save
+print(head(final_table, 20))
+# write_csv(final_table, "C:/Users/brody/Desktop/Brody Thesis Project/Combined_Coral_Data_Table.csv")
+
+```
 
