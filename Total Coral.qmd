@@ -104,8 +104,8 @@ print(head(final_table, 20))
 ```{r}
 library(dplyr)
 
-final_table_dedup <- final_table %>%
-  group_by(Year, Block, Treatment, `Coral ID`) %>%
+final_table_dedup_2 <- final_table %>%
+  group_by(Year, Block, Treatment, `Coral ID`, Size) %>%
   slice_max(order_by = Size, n = 1, with_ties = FALSE) %>%  # keep the best one
   ungroup()
 ```
@@ -113,8 +113,8 @@ final_table_dedup <- final_table %>%
 
 
 ```{r}
-dups <- final_table_dedup %>%
-  count(Year, Block, Treatment, `Coral ID`) %>%
+dups <- final_table_dedup_2 %>%
+  count(Year, Block, Treatment, `Coral ID`, Size) %>%
   filter(n > 1)
 nrow(dups)
 
@@ -157,6 +157,32 @@ ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
 ```{r}
 Coral_Table <- read.csv("C:/Users/brody/Desktop/Brody Thesis Project/Coral Table.csv")
 ```
+
+
+```{r}
+library(tidyverse)
+
+totals_overall_2 <- Coral_Table %>%
+  group_by(Year, Treatment, Block) %>%
+  summarise(total_size = sum(Size..cm.2., na.rm = TRUE),
+            SE = sd(Size..cm.2., na.rm = TRUE), .groups = "drop")
+
+# View/save if needed
+# write_csv(totals_overall, "totals_overall.csv")
+
+ggplot(totals_overall_2, aes(Year, total_size, color = Treatment)) +
+  #geom_line() +
+  geom_point() +
+  labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
+       x = "Year", y = "Total Coral Size cm^2") +
+  scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
+  theme_minimal()
+
+```
+
+
+
+
 
 
 

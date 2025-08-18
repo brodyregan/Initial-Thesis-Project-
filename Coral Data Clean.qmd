@@ -1,0 +1,172 @@
+---
+title: "Coral Data Clean"
+format: html
+---
+
+```{r}
+library(readxl)
+
+final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Coral Table Final.xlsx")
+```
+
+```{r}
+dups <- final_table %>%
+  count(Year, Block, Treatment, `Coral ID`, Size) %>%
+  filter(n > 1)
+nrow(dups)
+
+```
+
+
+```{r}
+library(tidyverse)
+
+totals_overall <- final_table %>%
+  group_by(Year, Treatment) %>%
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
+
+# View/save if needed
+# write_csv(totals_overall, "totals_overall.csv")
+
+ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
+       x = "Year", y = "Total Coral Size") +
+  scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(tidyverse)
+
+# Filter only corals marked as present
+corals_present <- final_table %>%
+  filter(`Coral Present (Yes or No)` == "Yes")
+
+# Count distinct Coral IDs per Year and Treatment (true totals across all blocks)
+corals_totals <- corals_present %>%
+  group_by(Year, Treatment) %>%
+  summarise(total_number = n_distinct(`Coral ID`), .groups = "drop")
+
+# Make a complete grid of all Year × Treatment combos (including 2018)
+all_combos <- expand_grid(
+  Year = unique(final_table$Year),
+  Treatment = unique(final_table$Treatment)
+)
+
+# Join and replace NAs with 0
+corals_totals_full <- all_combos %>%
+  left_join(corals_totals, by = c("Year", "Treatment")) %>%
+  mutate(total_number = replace_na(total_number, 0))
+
+# Plot
+ggplot(corals_totals_full, aes(x = Year, y = total_number, color = Treatment, group = Treatment)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(title = "Total Number of Unique Present Corals per Year by Treatment",
+       x = "Year", y = "Total Number of Corals (Present)") +
+  scale_x_continuous(breaks = sort(unique(corals_totals_full$Year))) +
+  theme_minimal()
+
+
+```
+
+
+
+
+```{r}
+library(tidyverse)
+
+# ----- 1. Per-block totals (replicates for error bars) -----
+per_block <- final_table %>%
+  group_by(Year, Treatment, Block) %>%
+  summarise(
+    total_size = sum(Size, na.rm = TRUE),
+    total_number = n_distinct(`Coral ID`),   # total corals per block
+    .groups = "drop"
+  )
+
+# ----- 2. Summarize across blocks (mean ± SE/CI) -----
+summ <- per_block %>%
+  group_by(Year, Treatment) %>%
+  summarise(
+    mean_size   = mean(total_size),
+    sd_size     = sd(total_size),
+    mean_number = mean(total_number),
+    sd_number   = sd(total_number),
+    n           = dplyr::n(),
+    se_size     = sd_size / sqrt(n),
+    se_number   = sd_number / sqrt(n),
+    .groups = "drop"
+  )
+
+# ----- 3a. Plot mean total SIZE ± SE -----
+ggplot(summ, aes(x = Year, y = mean_size, color = Treatment, group = Treatment)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean_size - se_size, ymax = mean_size + se_size),
+                width = 0.2) +
+  labs(title = "Mean Coral Size per Block (±SE)", 
+       x = "Year", y = "Mean Total Size per Block (cm^2)") +
+  theme_minimal()
+
+# ----- 3b. Plot mean total NUMBER ± SE -----
+ggplot(summ, aes(x = Year, y = mean_number, color = Treatment, group = Treatment)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean_number - se_number, ymax = mean_number + se_number),
+                width = 0.2) +
+  labs(title = "Mean Coral Number per Block (±SE)", 
+       x = "Year", y = "Mean Number of Corals per Block") +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

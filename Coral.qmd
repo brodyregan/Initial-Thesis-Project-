@@ -159,3 +159,24 @@ write_xlsx(final_table_fragments, path = out_path)
 
 ```
 
+
+
+```{r}
+library(tidyverse)
+
+totals_overall <- final_table_fragments %>%
+  group_by(Year, Treatment) %>%
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
+
+# View/save if needed
+# write_csv(totals_overall, "totals_overall.csv")
+
+ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
+       x = "Year", y = "Total Coral Size") +
+  scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
+  theme_minimal()
+
+```
