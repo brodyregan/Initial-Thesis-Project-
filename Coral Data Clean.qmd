@@ -28,13 +28,21 @@ totals_overall <- final_table %>%
 # View/save if needed
 # write_csv(totals_overall, "totals_overall.csv")
 
-ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
-  geom_line() +
-  geom_point() +
+ggplot(totals_overall, aes(Year, total_size, color = Treatment, shape = Treatment, group = Treatment)) +
+  
+
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5) +
   labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
-       x = "Year", y = "Total Coral Size") +
+       x = "Year", y = "Total Coral Size (cm2)") +
   scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
-  theme_minimal()
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
 
 ```
 
@@ -42,35 +50,43 @@ ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
 ```{r}
 library(tidyverse)
 
-# Filter only corals marked as present
+# 1) Only present corals
 corals_present <- final_table %>%
   filter(`Coral Present (Yes or No)` == "Yes")
 
-# Count distinct Coral IDs per Year and Treatment (true totals across all blocks)
-corals_totals <- corals_present %>%
-  group_by(Year, Treatment) %>%
-  summarise(total_number = n_distinct(`Coral ID`), .groups = "drop")
+# 2) One row per unique coral *instance* within a Year
+#    (handles repeated Coral ID numbers across blocks)
+instances <- corals_present %>%
+  distinct(Year, Treatment, Block, `Coral ID`)
 
-# Make a complete grid of all Year × Treatment combos (including 2018)
+# 3) True totals across blocks per Year × Treatment
+corals_totals <- instances %>%
+  count(Year, Treatment, name = "total_number")  # .groups drops automatically here
+
+# 4) Ensure all Year × Treatment combos appear (e.g., include 2018 = 0)
 all_combos <- expand_grid(
-  Year = unique(final_table$Year),
-  Treatment = unique(final_table$Treatment)
+  Year = sort(unique(final_table$Year)),
+  Treatment = sort(unique(final_table$Treatment))
 )
 
-# Join and replace NAs with 0
 corals_totals_full <- all_combos %>%
   left_join(corals_totals, by = c("Year", "Treatment")) %>%
-  mutate(total_number = replace_na(total_number, 0))
+  mutate(total_number = replace_na(total_number, 0L))
 
-# Plot
-ggplot(corals_totals_full, aes(x = Year, y = total_number, color = Treatment, group = Treatment)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
+# 5) Plot (one line per treatment)
+ggplot(corals_totals_full, aes(x = Year, y = total_number, color = Treatment, group = Treatment, shape = Treatment)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5) +
   labs(title = "Total Number of Unique Present Corals per Year by Treatment",
        x = "Year", y = "Total Number of Corals (Present)") +
   scale_x_continuous(breaks = sort(unique(corals_totals_full$Year))) +
-  theme_minimal()
-
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
 
 ```
 
@@ -85,7 +101,7 @@ per_block <- final_table %>%
   group_by(Year, Treatment, Block) %>%
   summarise(
     total_size = sum(Size, na.rm = TRUE),
-    total_number = n_distinct(`Coral ID`),   # total corals per block
+    total_number = n_distinct(`Coral ID`),  #IGNORE THIS
     .groups = "drop"
   )
 
@@ -95,7 +111,7 @@ summ <- per_block %>%
   summarise(
     mean_size   = mean(total_size),
     sd_size     = sd(total_size),
-    mean_number = mean(total_number),
+    mean_number = mean(total_number), #MEAN NUMBER IS WRONG
     sd_number   = sd(total_number),
     n           = dplyr::n(),
     se_size     = sd_size / sqrt(n),
@@ -104,24 +120,29 @@ summ <- per_block %>%
   )
 
 # ----- 3a. Plot mean total SIZE ± SE -----
-ggplot(summ, aes(x = Year, y = mean_size, color = Treatment, group = Treatment)) +
-  geom_line() +
-  geom_point() +
+ggplot(summ, aes(x = Year, y = mean_size,
+                 color = Treatment, shape = Treatment, group = Treatment)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 3) +
   geom_errorbar(aes(ymin = mean_size - se_size, ymax = mean_size + se_size),
-                width = 0.2) +
-  labs(title = "Mean Coral Size per Block (±SE)", 
-       x = "Year", y = "Mean Total Size per Block (cm^2)") +
-  theme_minimal()
-
-# ----- 3b. Plot mean total NUMBER ± SE -----
-ggplot(summ, aes(x = Year, y = mean_number, color = Treatment, group = Treatment)) +
-  geom_line() +
-  geom_point() +
-  geom_errorbar(aes(ymin = mean_number - se_number, ymax = mean_number + se_number),
-                width = 0.2) +
-  labs(title = "Mean Coral Number per Block (±SE)", 
-       x = "Year", y = "Mean Number of Corals per Block") +
-  theme_minimal()
+                width = 0.3, linewidth = 0.6) +
+  labs(title = "Mean Coral Size per Block (±SE)",
+       x = "Year", y = "Mean Total Size per Block (cm²)") +
+  scale_color_manual(values = c(
+    "1x1"     = "firebrick",
+    "2x2"     = "steelblue",
+    "Con"     = "forestgreen",
+    "TopOnly" = "goldenrod"
+  )) +
+  scale_x_continuous(breaks = sort(unique(summ$Year))) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +  # add headroom for error bars
+  theme_light() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    axis.title = element_text(size = 12),
+    axis.text  = element_text(size = 11),
+    panel.grid.minor = element_blank()
+  )
 
 ```
 
@@ -130,6 +151,52 @@ ggplot(summ, aes(x = Year, y = mean_number, color = Treatment, group = Treatment
 
 
 
+```{r}
+library(tidyverse)
+
+# 1) Only corals marked present
+corals_present <- final_table %>%
+  filter(`Coral Present (Yes or No)` == "Yes")
+
+# 2) Reduce to unique coral *instances* so repeated rows don't double-count
+#    Key: (Treatment, Block, Coral ID) within each Year
+instances <- corals_present %>%
+  distinct(Year, Treatment, Block, `Coral ID`)
+
+# 3) First year each unique coral (by Treatment+Block+ID) appears
+first_appearance <- instances %>%
+  group_by(Treatment, Block, `Coral ID`) %>%
+  summarise(first_year = min(Year), .groups = "drop")
+
+# 4) Count new corals per Year × Treatment (across blocks)
+new_corals <- first_appearance %>%
+  count(Year = first_year, Treatment, name = "new_count")
+
+# 5) Complete grid so years with 0 still show (e.g., 2018 = 0)
+all_combos <- expand_grid(
+  Year = sort(unique(final_table$Year)),
+  Treatment = sort(unique(final_table$Treatment))
+)
+
+new_corals_full <- all_combos %>%
+  left_join(new_corals, by = c("Year", "Treatment")) %>%
+  mutate(new_count = replace_na(new_count, 0L))
+
+# 6) Plot
+ggplot(new_corals_full, aes(x = Year, y = new_count, color = Treatment, group = Treatment)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5, aes(shape = Treatment)) +
+  labs(title = "Number of New Corals per Year by Treatment",
+       x = "Year", y = "New Corals") +
+  scale_x_continuous(breaks = sort(unique(new_corals_full$Year))) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
+```
 
 
 
