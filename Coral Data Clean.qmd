@@ -11,12 +11,33 @@ Ex_Cag <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Pal_
 
 ```
 
+
+```{r}
+Ex_Cag_Clean <- Ex_Cag   # make a copy
+Ex_Cag_Clean$Treatment[Ex_Cag_Clean$Treatment == "Control"] <- "Con"
+```
+
+```{r}
+library(openxlsx)
+
+openxlsx::write.xlsx(Ex_Cag_Clean, 
+  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
+
+```
+
+
 ```{r} 
 dups <- final_table %>%
   count(Year, Block, Treatment, `Coral ID`, Size) %>%
   filter(n > 1)
 nrow(dups)
 ## look for duplicates 
+```
+
+
+```{r}
+Ex_Cag_Clean <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
+
 ```
 
 
@@ -213,17 +234,57 @@ ggplot(new_corals_full, aes(x = Year, y = new_count, color = Treatment, group = 
 
 
 
+```{r}
+total_coral_area_block <- final_table |> 
+  group_by(Year, Treatment, Block) |> 
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
 
 
 
 
+all_data<- Ex_Cag_Clean_ver1 |> 
+  left_join(total_coral_area_block, by = c("Year", "Block", "Treatment"))
+
+```
+
+
+```{r}
+combined %>%
+  group_by(Treatment) %>%
+  summarise(
+    mean_recruits = mean(mean_recruits, na.rm = TRUE),
+    mean_area = mean(total_size, na.rm = TRUE)
+  )
+
+```
 
 
 
+```{r}
+library(reshape2)
+library(ggplot2)
+
+# Same correlations as above
+cors <- sapply(plot_data[ , -1], function(x) cor(plot_data$total_size, x, use = "pairwise.complete.obs"))
+cor_df <- data.frame(Variable = names(cors), Correlation = cors)
+
+# Plot
+ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
+  geom_col() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Correlation of Total Size vs Other Variables",
+       x = "Variable", y = "Correlation with Total Size")
+
+```
 
 
+```{r}
+library(ggplot2)
 
-
+ggplot(plot_data)
+```
 
 
 
