@@ -6,42 +6,42 @@ format: html
 ```{r}
 library(readxl)
 
-final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Coral Table Final.xlsx")
+final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Coral Table Final.xlsx")
+Ex_Cag <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Pal_ExCag_Dat_BR_V1.xlsx")
+
 ```
 
-```{r}
+```{r} 
 dups <- final_table %>%
   count(Year, Block, Treatment, `Coral ID`, Size) %>%
   filter(n > 1)
 nrow(dups)
-
+## look for duplicates 
 ```
 
 
 ```{r}
 library(tidyverse)
 
-totals_overall <- final_table %>%
-  group_by(Year, Treatment) %>%
+total_coral_area <- final_table |> 
+  group_by(Year, Treatment) |> 
   summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
 
-# View/save if needed
-# write_csv(totals_overall, "totals_overall.csv")
 
-ggplot(totals_overall, aes(Year, total_size, color = Treatment, shape = Treatment, group = Treatment)) +
+ggplot(total_coral_area, aes(Year, total_size, color = Treatment, shape = Treatment, group = Treatment)) +
   
 
   geom_line(size = 0.8) +
   geom_point(size = 2.5) +
-  labs(title = "Total Coral Size by Year and Treatment (All Blocks)",
+  labs(title = "Total Coral Area by Year and Treatment (All Blocks)",
        x = "Year", y = "Total Coral Size (cm2)") +
   scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
   scale_shape_manual(values = c(16, 17, 18, 15)) + 
   scale_color_manual(values = c(
-    "1x1" = "firebrick",
+    "1x1" = "coral4",
     "2x2" = "steelblue",
-    "Con" = "forestgreen",
-    "TopOnly" = "goldenrod"))+
+    "Con" = "darkolivegreen",
+    "TopOnly" = "burlywood2"))+
   theme_light()
 
 ```
@@ -120,29 +120,38 @@ summ <- per_block %>%
   )
 
 # ----- 3a. Plot mean total SIZE ± SE -----
+pos_jd <- position_jitterdodge(jitter.width = 0.08, jitter.height = 0, dodge.width = 0.6, seed = 123)
+
 ggplot(summ, aes(x = Year, y = mean_size,
-                 color = Treatment, shape = Treatment, group = Treatment)) +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 3) +
+                 color = Treatment, fill = Treatment, shape = Treatment)) +
+  geom_line()+
+  geom_point(size = 3, position = pos_jd, color = "black") +
   geom_errorbar(aes(ymin = mean_size - se_size, ymax = mean_size + se_size),
-                width = 0.3, linewidth = 0.6) +
+                width = 0.25, linewidth = 0.6, position = pos_jd) +
   labs(title = "Mean Coral Size per Block (±SE)",
        x = "Year", y = "Mean Total Size per Block (cm²)") +
-  scale_color_manual(values = c(
-    "1x1"     = "firebrick",
-    "2x2"     = "steelblue",
-    "Con"     = "forestgreen",
-    "TopOnly" = "goldenrod"
+  scale_fill_manual(values = c(
+    "1x1" = "#8C510A",
+    "2x2" = "#D8B365",
+    "Con" = "cornsilk3",
+    "TopOnly" = "#80CDC1"
   )) +
+  scale_color_manual(values = c(
+  "1x1" = "#8C510A",
+    "2x2" = "#D8B365",
+    "Con" = "cornsilk3",
+    "TopOnly" = "#80CDC1"))+
+  scale_shape_manual (values = c(21, 22, 23, 24))+
   scale_x_continuous(breaks = sort(unique(summ$Year))) +
-  scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +  # add headroom for error bars
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +
   theme_light() +
   theme(
     plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
     axis.title = element_text(size = 12),
     axis.text  = element_text(size = 11),
-    panel.grid.minor = element_blank()
-  )
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_blank())
 
 ```
 

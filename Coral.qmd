@@ -180,3 +180,57 @@ ggplot(totals_overall, aes(Year, total_size, color = Treatment)) +
   theme_minimal()
 
 ```
+
+
+
+
+
+
+```{r}
+```{r}
+library(tidyverse)
+
+# 1) Only corals marked present
+corals_present <- final_table %>%
+  filter(`Coral Present (Yes or No)` == "Yes")
+
+# 2) Reduce to unique coral *instances* so repeated rows don't double-count
+#    Key: (Treatment, Block, Coral ID) within each Year
+instances <- corals_present %>%
+  distinct(Year, Treatment, Block, `Coral ID`)
+
+# 3) First year each unique coral (by Treatment+Block+ID) appears
+first_appearance <- instances %>%
+  group_by(Treatment, Block, `Coral ID`) %>%
+  summarise(first_year = min(Year), .groups = "drop")
+
+# 4) Count new corals per Year × Treatment (across blocks)
+new_corals <- first_appearance %>%
+  count(Year = first_year, Treatment, name = "new_count")
+
+# 5) Complete grid so years with 0 still show (e.g., 2018 = 0)
+all_combos <- expand_grid(
+  Year = sort(unique(final_table$Year)),
+  Treatment = sort(unique(final_table$Treatment))
+)
+
+new_corals_full <- all_combos %>%
+  left_join(new_corals, by = c("Year", "Treatment")) %>%
+  mutate(new_count = replace_na(new_count, 0L))
+
+# 6) Plot
+ggplot(new_corals_full, aes(x = Year, y = new_count, color = Treatment, group = Treatment)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5, aes(shape = Treatment)) +
+  labs(title = "Number of New Corals per Year by Treatment",
+       x = "Year", y = "New Corals") +
+  scale_x_continuous(breaks = sort(unique(new_corals_full$Year))) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
+```
+
