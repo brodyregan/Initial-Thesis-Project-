@@ -281,29 +281,257 @@ ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
 
 
 ```{r}
-library(ggplot2)
-
-ggplot(plot_data)
+openxlsx::write.xlsx(all_data, 
+  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Combined Data.xlsx")
 ```
 
 
 
+```{r}
+library(ggplot2)
+
+ggplot(all_data, aes(x = total_size, y = `Grazerdetritivore_10-20cm`, color = Treatment)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  theme_bw() +
+  labs(
+    x = "Fleshy macroalgae cover (proportion)",
+    y = "Total coral area (cm²)",
+    title = "Relationship between Fleshy Macroalgae and Coral Size"
+  )
+
+```
+
+
+```{r}
+lm_combo <- lm(total_size ~ Fleshy_MA + `Grazerdetritivore_10-20cm`, 
+               data = all_data)
+summary(lm_combo)
+anova(lm_combo)
+
+```
+
+
+```{r}
+library(ggplot2)
+
+
+ggplot(all_data, aes(x = total_size, y = Fleshy_MA, color = Treatment)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  facet_wrap(~Treatment) +
+  theme_bw() +
+  labs(
+    x = "Fleshy macroalgae cover (proportion)",
+    y = "Total coral area (cm²)",
+    title = "Relationship between Fleshy Macroalgae and Coral Size by Treatment"
+  )
+
+```
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# ---- Identify columns ----
+benthic_cols <- c("CCA_calcareous","Fleshy_MA","Lobo/Peys","Scleractinian","SPAT","TAS")
+fish_cols <- names(all_data)[grepl("Grazerdetritivore|Scrapper", names(all_data))]
+predictor_cols <- c("mean_recruits", benthic_cols, fish_cols)
+predictor_cols <- intersect(predictor_cols, names(all_data))  # keep only those that exist
+
+# Numeric columns (for summaries/corr matrices)
+num_cols <- names(all_data)[sapply(all_data, is.numeric)]
+num_cols <- unique(c("total_size", intersect(num_cols, predictor_cols)))
+
+# ---- 0) Sanity check: do benthic covers sum to ~1? ----
+benthic_present <- all(benthic_cols %in% names(all_data))
+if (benthic_present) {
+  benthic_check <- all_data %>%
+    mutate(benthic_sum = rowSums(across(all_of(benthic_cols)), na.rm = TRUE)) %>%
+    summarize(
+      mean_sum = mean(benthic_sum, na.rm = TRUE),
+      sd_sum   = sd(benthic_sum, na.rm = TRUE),
+      n_off_by_0.05 = sum(abs(benthic_sum - 1) > 0.05, na.rm = TRUE)
+    )
+  print(benthic_check)
+}
+
+# ---- 1) Summary statistics for numeric variables ----
+summary_stats <- all_data %>%
+  summarize(
+    across(
+      all_of(num_cols),
+      list(
+        n    = ~sum(!is.na(.)),
+        mean = ~mean(., na.rm = TRUE),
+        sd   = ~sd(., na.rm = TRUE),
+        min  = ~min(., na.rm = TRUE),
+        max  = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(),
+               names_to = c("variable", "stat"),
+               names_sep = "_(?=[^_]+$)",
+               values_to = "value") %>%
+  pivot_wider(names_from = stat, values_from = value) %>%
+  arrange(variable)
+
+print(summary_stats)
+
+# ---- 2) Scatterplots: total_size vs each predictor (faceted) ----
+scatter_long <- all_data %>%
+  select(total_size, all_of(predictor_cols)) %>%
+  pivot_longer(-total_size, names_to = "predictor", values_to = "xval")
+
+p_scatter <- ggplot(scatter_long, aes(x = xval, y = total_size)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ predictor, scales = "free_x") +
+  theme_bw() +
+  labs(
+    x = "Predictor value",
+    y = "Total coral area (cm²)",
+    title = "total_size vs. predictors (LM fit with 95% CI)"
+  )
+print(p_scatter)
+
+# ---- 3) Correlation matrices (Pearson & Spearman) ----
+dat_num <- all_data %>% select(all_of(num_cols))
+
+# Pearson r
+cor_pearson <- cor(dat_num, use = "pairwise.complete.obs", method = "pearson")
+# Spearman rho
+cor_spearman <- cor(dat_num, use = "pairwise.complete.obs", method = "spearman")
+
+print(round(cor_pearson, 3))
+print(round(cor_spearman, 3))
+
+# ---- 4) Correlation of total_size with each predictor: r, rho, p-values ----
+corr_with_p <- function(y, x, method) {
+  # Handles NA internally
+  ct <- suppressWarnings(cor.test(y, x, method = method, use = "pairwise.complete.obs", exact = FALSE))
+  c(estimate = unname(ct$estimate), p.value = ct$p.value)
+}
+
+corr_table <- lapply(predictor_cols, function(v) {
+  out_p <- corr_with_p(all_data$total_size, all_data[[v]], method = "pearson")
+  out_s <- corr_with_p(all_data$total_size, all_data[[v]], method = "spearman")
+  data.frame(
+    predictor = v,
+    n = sum(!is.na(all_data$total_size) & !is.na(all_data[[v]])),
+    pearson_r = out_p["estimate"],
+    pearson_p = out_p["p.value"],
+    spearman_rho = out_s["estimate"],
+    spearman_p = out_s["p.value"],
+    stringsAsFactors = FALSE
+  )
+}) %>% bind_rows() %>%
+  arrange(pearson_p)
+
+print(corr_table)
+
+# ---- 5) (Optional) Simple one-predictor linear models: total_size ~ predictor ----
+# This is useful to see effect sizes and model summaries one by one.
+lm_list <- lapply(predictor_cols, function(v) {
+  fml <- as.formula(paste0("total_size ~ `", v, "`"))
+  fit <- lm(fml, data = all_data)
+  summ <- summary(fit)
+  tibble(
+    predictor = v,
+    n = sum(complete.cases(all_data[, c("total_size", v)])),
+    estimate = coef(summ)[2, "Estimate"],
+    std_error = coef(summ)[2, "Std. Error"],
+    t_value = coef(summ)[2, "t value"],
+    p_value = coef(summ)[2, "Pr(>|t|)"],
+    r_squared = summ$r.squared,
+    adj_r_squared = summ$adj.r.squared
+  )
+}) %>% bind_rows() %>% arrange(p_value)
+
+print(lm_list)
+
+# ---- 6) (Optional) Base R-only correlation matrices (no tidyverse) ----
+# Uncomment to use:
+# dat_num_base <- all_data[, num_cols]
+# cor_pearson_base  <- cor(dat_num_base, use = "pairwise.complete.obs", method = "pearson")
+# cor_spearman_base <- cor(dat_num_base, use = "pairwise.complete.obs", method = "spearman")
+# print(round(cor_pearson_base, 3))
+# print(round(cor_spearman_base, 3))
+
+```
+
+
+```{r}
+# Suppose your dataset is called df
+# and you want columns 3 to 6
+
+cols <- 4:16
+
+for (col in cols) {
+  hist(all_data[[col]],
+       main = paste("Histogram of", names(all_data)[col]),
+       xlab = names(df)[col],
+       col = "lightblue",
+       border = "black")
+}
+
+```
 
 
 
+```{r}
+# single predictor model
+m1 <- lm(total_size ~ mean_recruits, data = all_data)
+summary(m1)
 
+```
 
+```{r}
+# two predictors
+m2 <- lm(total_size ~ mean_recruits + Fleshy_MA, data = all_data)
+summary(m2)
 
+```
 
+```{r}
+# include factors
+m3 <- lm(total_size ~ mean_recruits + Fleshy_MA + Treatment + Year, data = all_data)
+summary(m3)
 
+```
 
+```{r}
+# add one fish group
+m4 <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + Treatment + Year, 
+         data = all_data)
+summary(m4)
 
+```
 
+```{r}
+AIC(m1, m2, m3, m4)
 
+```
 
+```{r}
+# Make Treatment a factor with your desired order
+all_data$Treatment <- factor(all_data$Treatment, 
+                             levels = c("Con", "1x1", "2x2", "TopOnly"))
 
+# Double-check
+levels(all_data$Treatment)
 
+```
 
+```{r}
+m_con <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + 
+              Treatment + Year, data = all_data)
 
+summary(m_con)
 
+```
 
