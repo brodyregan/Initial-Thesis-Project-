@@ -1,49 +1,30 @@
 ---
-title: "Coral Data Clean"
+title: "Coral Data Clean Figures"
 format: html
 ---
 
-```{r}
-library(readxl)
-
-final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Coral Table Final.xlsx")
-Ex_Cag <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Pal_ExCag_Dat_BR_V1.xlsx")
-
-```
-
-
-```{r}
-Ex_Cag_Clean <- Ex_Cag   # make a copy
-Ex_Cag_Clean$Treatment[Ex_Cag_Clean$Treatment == "Control"] <- "Con"
-```
-
-```{r}
-library(openxlsx)
-
-openxlsx::write.xlsx(Ex_Cag_Clean, 
-  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
-
-```
-
-
-```{r} 
-dups <- final_table %>%
-  count(Year, Block, Treatment, `Coral ID`, Size) %>%
-  filter(n > 1)
-nrow(dups)
-## look for duplicates 
-```
-
-
-```{r}
-Ex_Cag_Clean <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
-
-```
-
+# Packages
 
 ```{r}
 library(tidyverse)
+library(readxl)
+library(dplyr)
+```
 
+# Load data sets
+
+```{r}
+final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Coral Table Final.xlsx")
+Ex_Cag_Clean <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
+all_data <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Combined_Data_ver1.xlsx")
+
+
+```
+
+
+# Total Coral Area
+
+```{r}
 total_coral_area <- final_table |> 
   group_by(Year, Treatment) |> 
   summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
@@ -56,7 +37,7 @@ ggplot(total_coral_area, aes(Year, total_size, color = Treatment, shape = Treatm
   geom_point(size = 2.5) +
   labs(title = "Total Coral Area by Year and Treatment (All Blocks)",
        x = "Year", y = "Total Coral Size (cm2)") +
-  scale_x_continuous(breaks = sort(unique(totals_overall$Year))) +
+  scale_x_continuous(breaks = sort(unique(total_coral_area$Year))) +
   scale_shape_manual(values = c(16, 17, 18, 15)) + 
   scale_color_manual(values = c(
     "1x1" = "coral4",
@@ -68,9 +49,9 @@ ggplot(total_coral_area, aes(Year, total_size, color = Treatment, shape = Treatm
 ```
 
 
-```{r}
-library(tidyverse)
+# Number of Corals per Year
 
+```{r}
 # 1) Only present corals
 corals_present <- final_table %>%
   filter(`Coral Present (Yes or No)` == "Yes")
@@ -112,11 +93,9 @@ ggplot(corals_totals_full, aes(x = Year, y = total_number, color = Treatment, gr
 ```
 
 
-
+# Mean Coral Size per Block 
 
 ```{r}
-library(tidyverse)
-
 # ----- 1. Per-block totals (replicates for error bars) -----
 per_block <- final_table %>%
   group_by(Year, Treatment, Block) %>%
@@ -176,22 +155,9 @@ ggplot(summ, aes(x = Year, y = mean_size,
 
 ```
 
-
-
-
-
+# New Corals by Treatment 
 
 ```{r}
-library(tidyverse)
-
-# 1) Only corals marked present
-corals_present <- final_table %>%
-  filter(`Coral Present (Yes or No)` == "Yes")
-
-# 2) Reduce to unique coral *instances* so repeated rows don't double-count
-#    Key: (Treatment, Block, Coral ID) within each Year
-instances <- corals_present %>%
-  distinct(Year, Treatment, Block, `Coral ID`)
 
 # 3) First year each unique coral (by Treatment+Block+ID) appears
 first_appearance <- instances %>%
@@ -228,44 +194,24 @@ ggplot(new_corals_full, aes(x = Year, y = new_count, color = Treatment, group = 
   theme_light()
 ```
 
-
-
-
-
-
+# Check if variables are numeric
 
 ```{r}
-total_coral_area_block <- final_table |> 
-  group_by(Year, Treatment, Block) |> 
-  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
-
-
-
-
-all_data<- Ex_Cag_Clean_ver1 |> 
-  left_join(total_coral_area_block, by = c("Year", "Block", "Treatment"))
+str(all_data)   # shows type of each column
+sapply(all_data, class)
 
 ```
 
 
 ```{r}
-combined %>%
-  group_by(Treatment) %>%
-  summarise(
-    mean_recruits = mean(mean_recruits, na.rm = TRUE),
-    mean_area = mean(total_size, na.rm = TRUE)
-  )
+# Select only numeric columns
+plot_data <- all_data %>%
+  select(where(is.numeric))
 
-```
+# Compute Spearman correlations vs total_size
+cors <- sapply(plot_data[ , names(plot_data) != "total_size"],
+               function(x) cor(plot_data$total_size, x, method = "spearman", use = "pairwise.complete.obs"))
 
-
-
-```{r}
-library(reshape2)
-library(ggplot2)
-
-# Same correlations as above
-cors <- sapply(plot_data[ , -1], function(x) cor(plot_data$total_size, x, use = "pairwise.complete.obs"))
 cor_df <- data.frame(Variable = names(cors), Correlation = cors)
 
 # Plot
@@ -274,67 +220,15 @@ ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
   scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
   coord_flip() +
   theme_minimal() +
-  labs(title = "Correlation of Total Size vs Other Variables",
-       x = "Variable", y = "Correlation with Total Size")
+  labs(title = "Spearman Correlation with Total Size",
+       x = "Variable", y = "Spearman rho")
 
 ```
 
-
-```{r}
-openxlsx::write.xlsx(all_data, 
-  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Combined Data.xlsx")
-```
-
+# Summary Stats and Comparisons
 
 
 ```{r}
-library(ggplot2)
-
-ggplot(all_data, aes(x = total_size, y = `Grazerdetritivore_10-20cm`, color = Treatment)) +
-  geom_point(size = 3, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "black") +
-  theme_bw() +
-  labs(
-    x = "Fleshy macroalgae cover (proportion)",
-    y = "Total coral area (cm²)",
-    title = "Relationship between Fleshy Macroalgae and Coral Size"
-  )
-
-```
-
-
-```{r}
-lm_combo <- lm(total_size ~ Fleshy_MA + `Grazerdetritivore_10-20cm`, 
-               data = all_data)
-summary(lm_combo)
-anova(lm_combo)
-
-```
-
-
-```{r}
-library(ggplot2)
-
-
-ggplot(all_data, aes(x = total_size, y = Fleshy_MA, color = Treatment)) +
-  geom_point(size = 3, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "black") +
-  facet_wrap(~Treatment) +
-  theme_bw() +
-  labs(
-    x = "Fleshy macroalgae cover (proportion)",
-    y = "Total coral area (cm²)",
-    title = "Relationship between Fleshy Macroalgae and Coral Size by Treatment"
-  )
-
-```
-
-```{r}
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-
 # ---- Identify columns ----
 benthic_cols <- c("CCA_calcareous","Fleshy_MA","Lobo/Peys","Scleractinian","SPAT","TAS")
 fish_cols <- names(all_data)[grepl("Grazerdetritivore|Scrapper", names(all_data))]
@@ -399,40 +293,23 @@ p_scatter <- ggplot(scatter_long, aes(x = xval, y = total_size)) +
   )
 print(p_scatter)
 
-# ---- 3) Correlation matrices (Pearson & Spearman) ----
-dat_num <- all_data %>% select(all_of(num_cols))
+```
 
-# Pearson r
-cor_pearson <- cor(dat_num, use = "pairwise.complete.obs", method = "pearson")
-# Spearman rho
-cor_spearman <- cor(dat_num, use = "pairwise.complete.obs", method = "spearman")
 
-print(round(cor_pearson, 3))
-print(round(cor_spearman, 3))
+# Make control the reference
 
-# ---- 4) Correlation of total_size with each predictor: r, rho, p-values ----
-corr_with_p <- function(y, x, method) {
-  # Handles NA internally
-  ct <- suppressWarnings(cor.test(y, x, method = method, use = "pairwise.complete.obs", exact = FALSE))
-  c(estimate = unname(ct$estimate), p.value = ct$p.value)
-}
+```{r}
+all_data$Treatment <- factor(all_data$Treatment, 
+                             levels = c("Con", "1x1", "2x2", "TopOnly"))
 
-corr_table <- lapply(predictor_cols, function(v) {
-  out_p <- corr_with_p(all_data$total_size, all_data[[v]], method = "pearson")
-  out_s <- corr_with_p(all_data$total_size, all_data[[v]], method = "spearman")
-  data.frame(
-    predictor = v,
-    n = sum(!is.na(all_data$total_size) & !is.na(all_data[[v]])),
-    pearson_r = out_p["estimate"],
-    pearson_p = out_p["p.value"],
-    spearman_rho = out_s["estimate"],
-    spearman_p = out_s["p.value"],
-    stringsAsFactors = FALSE
-  )
-}) %>% bind_rows() %>%
-  arrange(pearson_p)
+levels(all_data$Treatment)
 
-print(corr_table)
+```
+
+# Make the correlation table 
+
+
+```{r}
 
 # ---- 5) (Optional) Simple one-predictor linear models: total_size ~ predictor ----
 # This is useful to see effect sizes and model summaries one by one.
@@ -453,85 +330,68 @@ lm_list <- lapply(predictor_cols, function(v) {
 }) %>% bind_rows() %>% arrange(p_value)
 
 print(lm_list)
-
-# ---- 6) (Optional) Base R-only correlation matrices (no tidyverse) ----
-# Uncomment to use:
-# dat_num_base <- all_data[, num_cols]
-# cor_pearson_base  <- cor(dat_num_base, use = "pairwise.complete.obs", method = "pearson")
-# cor_spearman_base <- cor(dat_num_base, use = "pairwise.complete.obs", method = "spearman")
-# print(round(cor_pearson_base, 3))
-# print(round(cor_spearman_base, 3))
-
 ```
 
+
+
+# Example Correlation Test with Year as a fixed value, eventually make block a replicate 
 
 ```{r}
-# Suppose your dataset is called df
-# and you want columns 3 to 6
+m_fixed <- lm(total_size ~ mean_recruits + Fleshy_MA + Treatment + factor(Year), 
+              data = all_data)
 
-cols <- 4:16
-
-for (col in cols) {
-  hist(all_data[[col]],
-       main = paste("Histogram of", names(all_data)[col]),
-       xlab = names(df)[col],
-       col = "lightblue",
-       border = "black")
-}
-
+summary(m_fixed)
 ```
 
 
 
-```{r}
-# single predictor model
-m1 <- lm(total_size ~ mean_recruits, data = all_data)
-summary(m1)
 
-```
 
-```{r}
-# two predictors
-m2 <- lm(total_size ~ mean_recruits + Fleshy_MA, data = all_data)
-summary(m2)
 
-```
 
-```{r}
-# include factors
-m3 <- lm(total_size ~ mean_recruits + Fleshy_MA + Treatment + Year, data = all_data)
-summary(m3)
 
-```
 
-```{r}
-# add one fish group
-m4 <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + Treatment + Year, 
-         data = all_data)
-summary(m4)
 
-```
 
-```{r}
-AIC(m1, m2, m3, m4)
 
-```
 
-```{r}
-# Make Treatment a factor with your desired order
-all_data$Treatment <- factor(all_data$Treatment, 
-                             levels = c("Con", "1x1", "2x2", "TopOnly"))
 
-# Double-check
-levels(all_data$Treatment)
 
-```
 
-```{r}
-m_con <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + 
-              Treatment + Year, data = all_data)
 
-summary(m_con)
 
-```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

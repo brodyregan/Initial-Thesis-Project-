@@ -1,0 +1,798 @@
+---
+title: "Coral Data Clean"
+format: html
+---
+
+```{r}
+library(readxl)
+
+final_table <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Coral Table Final.xlsx")
+Ex_Cag <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Pal_ExCag_Dat_BR_V1.xlsx")
+
+```
+
+
+```{r}
+Ex_Cag_Clean <- Ex_Cag   # make a copy
+Ex_Cag_Clean$Treatment[Ex_Cag_Clean$Treatment == "Control"] <- "Con"
+```
+
+```{r}
+library(openxlsx)
+
+openxlsx::write.xlsx(Ex_Cag_Clean, 
+  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
+
+```
+
+
+```{r} 
+dups <- final_table %>%
+  count(Year, Block, Treatment, `Coral ID`, Size) %>%
+  filter(n > 1)
+nrow(dups)
+## look for duplicates 
+```
+
+
+```{r}
+Ex_Cag_Clean <- read_excel("C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Ex_Cag_Clean_ver1.xlsx")
+
+```
+
+
+```{r}
+library(tidyverse)
+
+total_coral_area <- final_table |> 
+  group_by(Year, Treatment) |> 
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
+
+
+ggplot(total_coral_area, aes(Year, total_size, color = Treatment, shape = Treatment, group = Treatment)) +
+  
+
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5) +
+  labs(title = "Total Coral Area by Year and Treatment (All Blocks)",
+       x = "Year", y = "Total Coral Size (cm2)") +
+  scale_x_continuous(breaks = sort(unique(total_coral_area$Year))) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "coral4",
+    "2x2" = "steelblue",
+    "Con" = "darkolivegreen",
+    "TopOnly" = "burlywood2"))+
+  theme_light()
+
+```
+
+
+```{r}
+library(tidyverse)
+
+# 1) Only present corals
+corals_present <- final_table %>%
+  filter(`Coral Present (Yes or No)` == "Yes")
+
+# 2) One row per unique coral *instance* within a Year
+#    (handles repeated Coral ID numbers across blocks)
+instances <- corals_present %>%
+  distinct(Year, Treatment, Block, `Coral ID`)
+
+# 3) True totals across blocks per Year × Treatment
+corals_totals <- instances %>%
+  count(Year, Treatment, name = "total_number")  # .groups drops automatically here
+
+# 4) Ensure all Year × Treatment combos appear (e.g., include 2018 = 0)
+all_combos <- expand_grid(
+  Year = sort(unique(final_table$Year)),
+  Treatment = sort(unique(final_table$Treatment))
+)
+
+corals_totals_full <- all_combos %>%
+  left_join(corals_totals, by = c("Year", "Treatment")) %>%
+  mutate(total_number = replace_na(total_number, 0L))
+
+# 5) Plot (one line per treatment)
+ggplot(corals_totals_full, aes(x = Year, y = total_number, color = Treatment, group = Treatment, shape = Treatment)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5) +
+  labs(title = "Total Number of Unique Present Corals per Year by Treatment",
+       x = "Year", y = "Total Number of Corals (Present)") +
+  scale_x_continuous(breaks = sort(unique(corals_totals_full$Year))) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
+
+```
+
+
+
+
+```{r}
+library(tidyverse)
+
+# ----- 1. Per-block totals (replicates for error bars) -----
+per_block <- final_table %>%
+  group_by(Year, Treatment, Block) %>%
+  summarise(
+    total_size = sum(Size, na.rm = TRUE),
+    total_number = n_distinct(`Coral ID`),  #IGNORE THIS
+    .groups = "drop"
+  )
+
+# ----- 2. Summarize across blocks (mean ± SE/CI) -----
+summ <- per_block %>%
+  group_by(Year, Treatment) %>%
+  summarise(
+    mean_size   = mean(total_size),
+    sd_size     = sd(total_size),
+    mean_number = mean(total_number), #MEAN NUMBER IS WRONG
+    sd_number   = sd(total_number),
+    n           = dplyr::n(),
+    se_size     = sd_size / sqrt(n),
+    se_number   = sd_number / sqrt(n),
+    .groups = "drop"
+  )
+
+# ----- 3a. Plot mean total SIZE ± SE -----
+pos_jd <- position_jitterdodge(jitter.width = 0.08, jitter.height = 0, dodge.width = 0.6, seed = 123)
+
+ggplot(summ, aes(x = Year, y = mean_size,
+                 color = Treatment, fill = Treatment, shape = Treatment)) +
+  geom_line()+
+  geom_point(size = 3, position = pos_jd, color = "black") +
+  geom_errorbar(aes(ymin = mean_size - se_size, ymax = mean_size + se_size),
+                width = 0.25, linewidth = 0.6, position = pos_jd) +
+  labs(title = "Mean Coral Size per Block (±SE)",
+       x = "Year", y = "Mean Total Size per Block (cm²)") +
+  scale_fill_manual(values = c(
+    "1x1" = "#8C510A",
+    "2x2" = "#D8B365",
+    "Con" = "cornsilk3",
+    "TopOnly" = "#80CDC1"
+  )) +
+  scale_color_manual(values = c(
+  "1x1" = "#8C510A",
+    "2x2" = "#D8B365",
+    "Con" = "cornsilk3",
+    "TopOnly" = "#80CDC1"))+
+  scale_shape_manual (values = c(21, 22, 23, 24))+
+  scale_x_continuous(breaks = sort(unique(summ$Year))) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +
+  theme_light() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    axis.title = element_text(size = 12),
+    axis.text  = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_blank())
+
+```
+
+
+
+
+
+
+```{r}
+library(tidyverse)
+
+# 1) Only corals marked present
+corals_present <- final_table %>%
+  filter(`Coral Present (Yes or No)` == "Yes")
+
+# 2) Reduce to unique coral *instances* so repeated rows don't double-count
+#    Key: (Treatment, Block, Coral ID) within each Year
+instances <- corals_present %>%
+  distinct(Year, Treatment, Block, `Coral ID`)
+
+# 3) First year each unique coral (by Treatment+Block+ID) appears
+first_appearance <- instances %>%
+  group_by(Treatment, Block, `Coral ID`) %>%
+  summarise(first_year = min(Year), .groups = "drop")
+
+# 4) Count new corals per Year × Treatment (across blocks)
+new_corals <- first_appearance %>%
+  count(Year = first_year, Treatment, name = "new_count")
+
+# 5) Complete grid so years with 0 still show (e.g., 2018 = 0)
+all_combos <- expand_grid(
+  Year = sort(unique(final_table$Year)),
+  Treatment = sort(unique(final_table$Treatment))
+)
+
+new_corals_full <- all_combos %>%
+  left_join(new_corals, by = c("Year", "Treatment")) %>%
+  mutate(new_count = replace_na(new_count, 0L))
+
+# 6) Plot
+ggplot(new_corals_full, aes(x = Year, y = new_count, color = Treatment, group = Treatment)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 2.5, aes(shape = Treatment)) +
+  labs(title = "Number of New Corals per Year by Treatment",
+       x = "Year", y = "New Corals") +
+  scale_x_continuous(breaks = sort(unique(new_corals_full$Year))) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) + 
+  scale_color_manual(values = c(
+    "1x1" = "firebrick",
+    "2x2" = "steelblue",
+    "Con" = "forestgreen",
+    "TopOnly" = "goldenrod"))+
+  theme_light()
+```
+
+
+
+
+
+
+
+```{r}
+total_coral_area_block <- final_table |> 
+  group_by(Year, Treatment, Block) |> 
+  summarise(total_size = sum(Size, na.rm = TRUE), .groups = "drop")
+
+
+
+
+all_data<- Ex_Cag_Clean_ver1 |> 
+  left_join(total_coral_area_block, by = c("Year", "Block", "Treatment"))
+
+```
+
+
+```{r}
+combined %>%
+  group_by(Treatment) %>%
+  summarise(
+    mean_recruits = mean(mean_recruits, na.rm = TRUE),
+    mean_area = mean(total_size, na.rm = TRUE)
+  )
+
+```
+
+
+
+```{r}
+library(reshape2)
+library(ggplot2)
+
+# Same correlations as above
+cors <- sapply(plot_data[ , -1], function(x) cor(plot_data$total_size, x, use = "pairwise.complete.obs"))
+cor_df <- data.frame(Variable = names(cors), Correlation = cors)
+
+# Plot
+ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
+  geom_col() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Correlation of Total Size vs Other Variables",
+       x = "Variable", y = "Correlation with Total Size")
+
+```
+
+```{r}
+str(all_data)   # shows type of each column
+sapply(all_data, class)
+
+```
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Select only numeric columns
+plot_data <- all_data %>%
+  select(where(is.numeric))
+
+# Compute Spearman correlations vs total_size
+cors <- sapply(plot_data[ , names(plot_data) != "total_size"],
+               function(x) cor(plot_data$total_size, x, method = "spearman", use = "pairwise.complete.obs"))
+
+cor_df <- data.frame(Variable = names(cors), Correlation = cors)
+
+# Plot
+ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
+  geom_col() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Spearman Correlation with Total Size",
+       x = "Variable", y = "Spearman rho")
+
+```
+
+
+
+```{r}
+openxlsx::write.xlsx(all_data, 
+  "C:/Users/brody/Desktop/Brody Thesis Project/Data Sets/Combined Data.xlsx")
+```
+
+
+
+```{r}
+library(ggplot2)
+
+ggplot(all_data, aes(x = total_size, y = `Grazerdetritivore_10-20cm`, color = Treatment)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  theme_bw() +
+  labs(
+    x = "Fleshy macroalgae cover (proportion)",
+    y = "Total coral area (cm²)",
+    title = "Relationship between Fleshy Macroalgae and Coral Size"
+  )
+
+```
+
+
+```{r}
+lm_combo <- lm(total_size ~ Fleshy_MA + `Grazerdetritivore_10-20cm`, 
+               data = all_data)
+summary(lm_combo)
+anova(lm_combo)
+
+```
+
+
+```{r}
+library(ggplot2)
+
+
+ggplot(all_data, aes(x = total_size, y = Fleshy_MA, color = Treatment)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  facet_wrap(~Treatment) +
+  theme_bw() +
+  labs(
+    x = "Fleshy macroalgae cover (proportion)",
+    y = "Total coral area (cm²)",
+    title = "Relationship between Fleshy Macroalgae and Coral Size by Treatment"
+  )
+
+```
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# ---- Identify columns ----
+benthic_cols <- c("CCA_calcareous","Fleshy_MA","Lobo/Peys","Scleractinian","SPAT","TAS")
+fish_cols <- names(all_data)[grepl("Grazerdetritivore|Scrapper", names(all_data))]
+predictor_cols <- c("mean_recruits", benthic_cols, fish_cols)
+predictor_cols <- intersect(predictor_cols, names(all_data))  # keep only those that exist
+
+# Numeric columns (for summaries/corr matrices)
+num_cols <- names(all_data)[sapply(all_data, is.numeric)]
+num_cols <- unique(c("total_size", intersect(num_cols, predictor_cols)))
+
+# ---- 0) Sanity check: do benthic covers sum to ~1? ----
+benthic_present <- all(benthic_cols %in% names(all_data))
+if (benthic_present) {
+  benthic_check <- all_data %>%
+    mutate(benthic_sum = rowSums(across(all_of(benthic_cols)), na.rm = TRUE)) %>%
+    summarize(
+      mean_sum = mean(benthic_sum, na.rm = TRUE),
+      sd_sum   = sd(benthic_sum, na.rm = TRUE),
+      n_off_by_0.05 = sum(abs(benthic_sum - 1) > 0.05, na.rm = TRUE)
+    )
+  print(benthic_check)
+}
+
+# ---- 1) Summary statistics for numeric variables ----
+summary_stats <- all_data %>%
+  summarize(
+    across(
+      all_of(num_cols),
+      list(
+        n    = ~sum(!is.na(.)),
+        mean = ~mean(., na.rm = TRUE),
+        sd   = ~sd(., na.rm = TRUE),
+        min  = ~min(., na.rm = TRUE),
+        max  = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(),
+               names_to = c("variable", "stat"),
+               names_sep = "_(?=[^_]+$)",
+               values_to = "value") %>%
+  pivot_wider(names_from = stat, values_from = value) %>%
+  arrange(variable)
+
+print(summary_stats)
+
+# ---- 2) Scatterplots: total_size vs each predictor (faceted) ----
+scatter_long <- all_data %>%
+  select(total_size, all_of(predictor_cols)) %>%
+  pivot_longer(-total_size, names_to = "predictor", values_to = "xval")
+
+p_scatter <- ggplot(scatter_long, aes(x = xval, y = total_size)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ predictor, scales = "free_x") +
+  theme_bw() +
+  labs(
+    x = "Predictor value",
+    y = "Total coral area (cm²)",
+    title = "total_size vs. predictors (LM fit with 95% CI)"
+  )
+print(p_scatter)
+
+# ---- 3) Correlation matrices (Pearson & Spearman) ----
+dat_num <- all_data %>% select(all_of(num_cols))
+
+# Pearson r
+cor_pearson <- cor(dat_num, use = "pairwise.complete.obs", method = "pearson")
+# Spearman rho
+cor_spearman <- cor(dat_num, use = "pairwise.complete.obs", method = "spearman")
+
+print(round(cor_pearson, 3))
+print(round(cor_spearman, 3))
+
+# ---- 4) Correlation of total_size with each predictor: r, rho, p-values ----
+corr_with_p <- function(y, x, method) {
+  # Handles NA internally
+  ct <- suppressWarnings(cor.test(y, x, method = method, use = "pairwise.complete.obs", exact = FALSE))
+  c(estimate = unname(ct$estimate), p.value = ct$p.value)
+}
+
+corr_table <- lapply(predictor_cols, function(v) {
+  out_p <- corr_with_p(all_data$total_size, all_data[[v]], method = "pearson")
+  out_s <- corr_with_p(all_data$total_size, all_data[[v]], method = "spearman")
+  data.frame(
+    predictor = v,
+    n = sum(!is.na(all_data$total_size) & !is.na(all_data[[v]])),
+    pearson_r = out_p["estimate"],
+    pearson_p = out_p["p.value"],
+    spearman_rho = out_s["estimate"],
+    spearman_p = out_s["p.value"],
+    stringsAsFactors = FALSE
+  )
+}) %>% bind_rows() %>%
+  arrange(pearson_p)
+
+print(corr_table)
+
+# ---- 5) (Optional) Simple one-predictor linear models: total_size ~ predictor ----
+# This is useful to see effect sizes and model summaries one by one.
+lm_list <- lapply(predictor_cols, function(v) {
+  fml <- as.formula(paste0("total_size ~ `", v, "`"))
+  fit <- lm(fml, data = all_data)
+  summ <- summary(fit)
+  tibble(
+    predictor = v,
+    n = sum(complete.cases(all_data[, c("total_size", v)])),
+    estimate = coef(summ)[2, "Estimate"],
+    std_error = coef(summ)[2, "Std. Error"],
+    t_value = coef(summ)[2, "t value"],
+    p_value = coef(summ)[2, "Pr(>|t|)"],
+    r_squared = summ$r.squared,
+    adj_r_squared = summ$adj.r.squared
+  )
+}) %>% bind_rows() %>% arrange(p_value)
+
+print(lm_list)
+
+# ---- 6) (Optional) Base R-only correlation matrices (no tidyverse) ----
+# Uncomment to use:
+# dat_num_base <- all_data[, num_cols]
+# cor_pearson_base  <- cor(dat_num_base, use = "pairwise.complete.obs", method = "pearson")
+# cor_spearman_base <- cor(dat_num_base, use = "pairwise.complete.obs", method = "spearman")
+# print(round(cor_pearson_base, 3))
+# print(round(cor_spearman_base, 3))
+
+```
+
+
+```{r}
+# Suppose your dataset is called df
+# and you want columns 3 to 6
+
+cols <- 4:16
+
+for (col in cols) {
+  hist(all_data[[col]],
+       main = paste("Histogram of", names(all_data)[col]),
+       xlab = names(df)[col],
+       col = "lightblue",
+       border = "black")
+}
+
+```
+
+
+
+```{r}
+# single predictor model
+m1 <- lm(total_size ~ mean_recruits, data = all_data)
+summary(m1)
+
+```
+
+```{r}
+# two predictors
+m2 <- lm(total_size ~ mean_recruits + Fleshy_MA, data = all_data)
+summary(m2)
+
+```
+
+```{r}
+# include factors
+m3 <- lm(total_size ~ mean_recruits + Fleshy_MA + Treatment + Year, data = all_data)
+summary(m3)
+
+```
+
+```{r}
+# add one fish group
+m4 <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + Treatment + Year, 
+         data = all_data)
+summary(m4)
+
+```
+
+```{r}
+AIC(m1, m2, m3, m4)
+
+```
+
+```{r}
+# Make Treatment a factor with your desired order
+all_data$Treatment <- factor(all_data$Treatment, 
+                             levels = c("Con", "1x1", "2x2", "TopOnly"))
+
+# Double-check
+levels(all_data$Treatment)
+
+```
+
+```{r}
+m_con <- lm(total_size ~ mean_recruits + Fleshy_MA + `Scrapper_20-30cm` + 
+              Treatment + Year, data = all_data)
+
+summary(m_con)
+
+```
+
+
+
+
+```{r}
+library(lme4)
+library(lmerTest)
+
+m_random <- lmer(total_size ~ mean_recruits + Fleshy_MA + Treatment + 
+                   (1|Year), data = all_data)
+summary(m_random)
+
+```
+
+
+```{r}
+m_fixed <- lm(total_size ~ mean_recruits + Fleshy_MA + Treatment + factor(Year), 
+              data = all_data)
+
+summary(m_fixed)
+```
+
+
+
+```{r}
+# If your model is called m
+resid_vals <- resid(m_fixed)        # raw residuals
+fitted_vals <- fitted(m_fixed)      # fitted values
+
+
+
+hist(resid_vals, breaks = 15, main = "Histogram of residuals", xlab = "Residuals")
+plot(density(resid_vals), main = "Density of residuals")
+
+```
+
+
+```{r}
+library(lmerTest)
+
+# Random intercepts for Block and Year
+m_block <- lmer(total_size ~ mean_recruits + Fleshy_MA + Treatment + 
+                  (1|Block) + (1|Year),
+                data = all_data)
+
+summary(m_block)
+
+```
+
+
+
+```{r}
+library(lmerTest)
+library(MuMIn)
+
+# Make sure Treatment is a factor with Con as the baseline
+all_data$Treatment <- factor(all_data$Treatment, 
+                             levels = c("Con", "1x1", "2x2", "TopOnly"))
+
+# Global model (everything you want dredge to consider)
+m_global <- lmer(total_size ~ mean_recruits + Fleshy_MA + CCA_calcareous + 
+                   `Lobo/Peys` + SPAT + TAS +
+                   `Grazerdetritivore_10-20cm` + `Grazerdetritivore_20-30cm` +
+                   `Scrapper_10-20cm` + `Scrapper_20-30cm` + `Scrapper_>30cm` +
+                   Treatment + Year +           # include Year if you want it dredged
+                   (1|Block) + (1|Year),        # random effects (fixed in place)
+                 data = all_data, REML = FALSE)
+
+# 🔹 Tell MuMIn to fail if missing data would cause problems
+options(na.action = "na.fail")
+
+# Now dredge works as intended
+model_set <- dredge(m_global, rank = "AICc")
+head(model_set, 10)
+
+```
+
+
+```{r}
+#| warning: false
+options(na.action = "na.fail")
+model_set <- dredge(m_global, rank = "AICc")
+
+# See top 10 models
+head(model_set, 10)
+
+# Best model
+best_model <- get.models(model_set, subset = 1)[[1]]
+summary(best_model)
+
+```
+
+
+
+```{r}
+# --- Libraries ---
+library(dplyr)
+library(tidyr)
+library(lmerTest)
+library(MuMIn)
+
+# --- Stable factor order for Treatment (Control as baseline) ---
+all_data$Treatment <- factor(all_data$Treatment, levels = c("Con","1x1","2x2","TopOnly"))
+
+# Also prepare a factor version of Year for the "Year as fixed categorical" branch
+all_data$Year_fac <- factor(all_data$Year)
+
+# --- Pools of candidate fixed effects (USE RAW COLUMN NAMES HERE; NO BACKTICKS) ---
+base_terms   <- c("mean_recruits", "Treatment")
+benthic_pool <- c("Fleshy_MA","CCA_calcareous","Lobo/Peys","SPAT","TAS")
+fish_pool    <- c("Grazerdetritivore_10-20cm","Grazerdetritivore_20-30cm",
+                  "Scrapper_10-20cm","Scrapper_20-30cm","Scrapper_>30cm")
+
+# --- Quick sanity check for typos/missing columns ---
+missing_cols <- setdiff(
+  c(base_terms, benthic_pool, fish_pool, "Block","Year","Year_fac","total_size"),
+  names(all_data)
+)
+if (length(missing_cols)) {
+  stop(sprintf("These columns are missing from all_data: %s",
+               paste(missing_cols, collapse = ", ")))
+}
+
+# --- Helper: wrap only names that need backticks for use INSIDE formulas ---
+wrap_special <- function(x) ifelse(grepl("[^[:alnum:]_]", x), paste0("`", x, "`"), x)
+
+# --- Helper: build formula safely (fixed vars + year term + random structure) ---
+build_formula <- function(response, fixed_vars, year_term, re_term) {
+  rhs_fixed <- if (length(fixed_vars)) paste(wrap_special(fixed_vars), collapse = " + ") else "1"
+  rhs <- paste(c(rhs_fixed, wrap_special(year_term), re_term), collapse = " + ")
+  as.formula(paste(response, "~", rhs))
+}
+
+# --- Runs to search (keeps sample sizes reasonable) ---
+runs <- list(
+  list(name = "benthic", fixed_pool = c(base_terms, benthic_pool)),
+  list(name = "fish",    fixed_pool = c(base_terms, fish_pool)),
+  list(name = "both",    fixed_pool = c(base_terms, benthic_pool, fish_pool))
+)
+
+# Year representations to consider
+year_modes <- list(
+  list(name = "Year_numeric", term = "Year"),
+  list(name = "Year_factor",  term = "Year_fac")
+)
+
+# Random-effect structures to compare (dredge does not vary these)
+rand_structs <- list(
+  list(name = "RB_RY",  re = "(1|Block) + (1|Year)"),
+  list(name = "RB_only",re = "(1|Block)")
+  # Add others you used manually, e.g. list(name="RY_only", re="(1|Year)"),
+  # or lm-only case by fitting lm() separately if needed
+)
+
+# MuMIn requires this for exhaustive subset search
+options(na.action = "na.fail")
+
+# --- Function: fit one configuration and dredge its fixed-effect subsets ---
+fit_and_dredge <- function(fixed_pool, year_term, re_term, run_label) {
+  # Build minimal dataset with complete cases ONLY for the variables needed in this run
+  vars_needed <- unique(c("total_size", fixed_pool, "Treatment", "Block", "Year", year_term))
+  df <- all_data %>%
+    dplyr::select(all_of(vars_needed)) %>%
+    tidyr::drop_na() %>%
+    mutate(Treatment = factor(Treatment, levels = c("Con","1x1","2x2","TopOnly")))
+
+  if (nrow(df) < 10) return(NULL)  # too few rows to fit sensibly
+
+  # Fit global mixed model for this configuration
+  fml <- build_formula("total_size", fixed_pool, year_term, re_term)
+  m_global <- lmer(fml, data = df, REML = FALSE)
+
+  # All-subsets on fixed effects
+  ms <- dredge(m_global, rank = "AICc")
+  ms$run        <- run_label
+  ms$N          <- nrow(df)
+  ms$year_mode  <- year_term
+  ms$random_str <- re_term
+
+  list(modelset = ms, global = m_global, data = df)
+}
+
+# --- Execute the grid search ---
+results <- list(); k <- 1
+for (r in runs) {
+  for (ym in year_modes) {
+    for (rs in rand_structs) {
+      lbl <- paste(r$name, ym$name, rs$name, sep = "_")
+      out <- fit_and_dredge(r$fixed_pool, ym$term, rs$re, lbl)
+      if (!is.null(out)) { results[[k]] <- out; k <- k + 1 }
+    }
+  }
+}
+
+# --- Collect and display the best models ---
+all_tables <- dplyr::bind_rows(lapply(results, `[[`, "modelset"))
+
+best_per_config <- all_tables %>%
+  group_by(run, year_mode, random_str, N) %>%
+  slice_min(order_by = AICc, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  arrange(AICc)
+
+cat("\n--- Best model per configuration (sorted by AICc) ---\n")
+print(best_per_config)
+
+overall_top <- best_per_config %>% slice_min(order_by = AICc, n = 5, with_ties = TRUE)
+cat("\n--- Overall top models across all configurations ---\n")
+print(overall_top)
+
+# --- Extract and summarize the single best model we found ---
+if (nrow(overall_top) > 0) {
+  top <- overall_top[1, ]
+  # Find the matching result entry
+  idx <- which(sapply(results, function(x) {
+    any(x$modelset$AICc == top$AICc & x$modelset$run == top$run)
+  }))[1]
+
+  top_model <- get.models(results[[idx]]$modelset, subset = 1)[[1]]
+  cat("\n\n--- Summary of overall best model ---\n")
+  print(summary(top_model))
+  cat("\nN used:", results[[idx]]$modelset$N[1],
+      "\nYear mode:", results[[idx]]$modelset$year_mode[1],
+      "\nRandom:", results[[idx]]$modelset$random_str[1], "\n")
+}
+
+```
+
